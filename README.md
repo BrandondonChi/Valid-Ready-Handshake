@@ -1,4 +1,11 @@
 # Valid-Ready-Handshake
+
+2022.5.12更新
+更新了Backward_Registered写法
+采用if else语句以及组合逻辑实现，个人认为比FSM实现要方便。
+
+
+
 Forward_Registered和Backward_Registered模块中注释掉的代码为之前版本的写法
 
 对Backward_Registered的理解
