@@ -1,61 +1,68 @@
-// 对ready打拍
-/*-----------------------------------------------------------------
-当Master端发送请求但Slave端未就绪时将data暂存于寄存器中，并将valid_skid拉高，表示下一次Slave准备好接收数据时读取暂存于寄存器中的数据。
-------------------------------------------------------------------*/
-module Backward_Registered #( parameter WIDTH = 8)(
-	input clk,
-	input rst_n,
-	input m_valid,
-	input [WIDTH-1:0] m_data,
-	output m_ready,
-	output s_valid,
-	output [WIDTH-1:0] s_data,
-	// output reg valid_skid,
-	// output reg [WIDTH-1:0] data_skid, 用于仿真的接口
-	input s_ready
-	);
+`timescale 1ns / 1ps
+module Backward_Registered #( parameter WIDTH = 8) (
+        input              clk,
+        input              rst_n,
 
-	wire s_ready_dge;
-	reg valid_skid;
-	reg [WIDTH-1:0] data_skid;
-/*
-	always @(posedge clk or negedge rst_n) begin
-	  	if (!rst_n)
-	  	  	valid_skid <= 1'b0;          
-	  	else if (valid_skid)
-	  	 	valid_skid <= ~s_ready;          
-	  	else if (~valid_skid^s_ready)
-	  	  	valid_skid <= m_valid;    //buffer_skid中有数据有效信号
-	end                           
-	*/  
-//-------------------------------------
-//更新之后的写法
-	always @(posedge clk or negedge rst_n)begin
-		if (rst_n == 1'd0)
-			valid_skid <= 1'd0;
-		else if (m_valid == 1'd1 && s_ready == 1'd0 &&valid_skid == 1'd0)//master发送请求但slave未准备好接收数据，将valid_skid拉高，表明下一次Slave准备好接收数据时读取暂存于寄存器中的数据。
-			valid_skid <= 1'd1;
-		else if (s_ready == 1'd1)										//slave已准备好接收数据，将valid_skid拉低
-			valid_skid <= 1'd0;
-		else 
-			valid_skid <= valid_skid;
-	end  
-//---------------------------------------
+        input              m_valid,
+        output             m_ready,
+        input [WIDTH-1:0] m_data,
 
-	
-	always @(posedge clk or negedge rst_n) begin
-	  	if (!rst_n)
-	  	  	data_skid <= {WIDTH{1'b0}};           
-	  	else
-	  	  	data_skid <= valid_skid ? data_skid: m_data;      //valid_skid为高电平时，将数据暂存于data_skid中，valid_skid为低电平时更新data_skid中数据
-	end 
-	
-	
-	assign  s_valid = valid_skid | m_valid;        			//提前拉高s_valid，一旦slave准备好接收数据（s_ready=1）就可从data_skid中读取数据，提高传输速率
-	assign  s_data = valid_skid ? data_skid : m_data;    
-	assign  m_ready = ~valid_skid ;  						//valid_skid=0时，一种情况表明slave已准备好接收暂存数据，此时将m_ready拉高做好准备，当m_valid=1时master即可向外发送数据，提高传输速率
-															//另一种情况则是m_valid=0 且s_ready=0，此时没有数据可发送，将m_ready信号拉高，提前做好准备，提高传输速率 
+        output             s_valid,
+        input              s_ready,
+        output [WIDTH-1:0] s_data,
+        );
+
+    reg                        reg_valid;
+    wire                       reg_valid_in;
+    reg                        reg_ready_out;
+    wire                       reg_ready_in;
+    wire                       reg_no_data_in;
+    wire                       pass_through;
+    wire                       reg_valid_out;
+    reg    [0:WIDTH-1]         reg_data;
 
 
 
-endmodule 
+always @(posedge clk)begin
+    if(!rst_n)
+    begin
+		reg_valid <= 0;
+		reg_ready_out <= 1'b1;
+		reg_data <= {WIDTH{1'b0}};
+    end
+    else
+    begin
+        reg_ready_out <= (reg_ready_in||(reg_no_data_in && ~reg_valid));//除气泡 数据存入寄存器且寄存器内无数据时，m_ready可为高
+        if (reg_ready_out)//寄存器准备好接收数据
+        begin
+            reg_valid <= reg_valid_in;
+            reg_data <= m_data;
+        end
+        else
+        begin
+            if (reg_valid_out && reg_ready_in)
+                reg_valid <= 1'b0;
+            else reg_valid <= reg_valid;
+        end
+    end
+end
+
+
+
+assign reg_no_data_in = ~(reg_valid_in && reg_ready_out);//master握手不成功时为1，此时无数据进入寄存器
+
+assign pass_through = m_ready && s_ready && ~reg_valid;//数据直通状态 ready一直为高时，只需valid为高即可直接进行握手
+
+assign reg_valid_in = ~pass_through && m_valid;//数据直通时valid不存入寄存器
+
+assign reg_valid_out = reg_valid;
+
+assign reg_ready_in = s_ready;
+
+assign m_ready = reg_ready_out;
+
+//master和slave直接相连，不经过寄存器
+assign s_valid = pass_through ? m_valid : reg_valid;
+assign s_data = pass_through ? m_data : reg_data;
+
+endmodule
