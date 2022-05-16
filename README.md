@@ -1,4 +1,7 @@
 # Valid-Ready-Handshake
+2022.5.16更新
+skid buffer添加了一级流水线
+/***************************************************/
 
 2022.5.12更新
 更新了Backward_Registered写法
